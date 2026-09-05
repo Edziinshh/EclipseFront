@@ -12,6 +12,10 @@ AEFPlayerState::AEFPlayerState()
 
     AbilitySystemComponent = CreateDefaultSubobject<UEFAbilitySystemComponent>(TEXT("AbilitySystemComponent"));
     HeroAttributeSet = CreateDefaultSubobject<UEFHeroAttributeSet>(TEXT("HeroAttributeSet"));
+
+    // Temporary M3 siege-test tuning: player heroes can clear each objective in one hit.
+    // Creeps and towers own separate attribute sets and keep their normal damage values.
+    HeroAttributeSet->InitAttackDamage(5000.0f);
 }
 
 UAbilitySystemComponent* AEFPlayerState::GetAbilitySystemComponent() const
