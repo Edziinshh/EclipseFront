@@ -18,6 +18,7 @@
 - Unreal-ассеты `.uasset` и `.umap` переведены под Git LFS.
 - Генерируемые каталоги Unreal и IDE исключены через `.gitignore`.
 - Удалённый репозиторий: `https://github.com/Edziinshh/EclipseFront.git`.
+- Добавлен `Docs/ROADMAP.md`: последовательность работ от закрытия M3 до основы 5v5 Alpha.
 
 ### M3 — Lane Structures и однолинейная осада
 

@@ -19,6 +19,7 @@ Competitive MOBA на Unreal Engine 5 с серверной авторитетн
 - `Docs/GDD_v0.2.md` — игровой дизайн и границы прототипа.
 - `Docs/TECHNICAL_ARCHITECTURE.md` — архитектура и сетевые решения.
 - `Docs/DEVLOG.md` — хронология изменений, проверок и следующих шагов.
+- `Docs/ROADMAP.md` — порядок milestones от текущей осады до 5v5 Alpha.
 - `Docs/M0_BACKLOG.md` — milestone, критерии готовности и задачи.
 - `Docs/M1_BACKLOG.md` — текущий combat milestone и следующие задачи.
 - `Docs/M2_BACKLOG.md` — первый lane milestone и порядок развития крипов.
