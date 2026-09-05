@@ -1,0 +1,25 @@
+# Unreal generated files
+Binaries/
+DerivedDataCache/
+Intermediate/
+Saved/
+.vs/
+
+# IDE/user state
+*.VC.db
+*.VC.opendb
+*.sln
+*.slnx
+*.suo
+*.user
+*.opensdf
+*.sdf
+
+# Build products
+*.opensdf
+*.pdb
+*.obj
+
+# Local Codex scratch/deliverables are not game source
+work/
+outputs/

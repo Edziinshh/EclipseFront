@@ -1,0 +1,23 @@
+{
+	"FileVersion": 3,
+	"EngineAssociation": "{21EA2157-49B5-CB1B-1B7A-99BFEA32A39E}",
+	"Category": "Games",
+	"Description": "ECLIPSE FRONT competitive MOBA prototype",
+	"Modules": [
+		{
+			"Name": "EclipseFront",
+			"Type": "Runtime",
+			"LoadingPhase": "Default"
+		}
+	],
+	"Plugins": [
+		{
+			"Name": "GameplayAbilities",
+			"Enabled": true
+		},
+		{
+			"Name": "EnhancedInput",
+			"Enabled": true
+		}
+	]
+}
