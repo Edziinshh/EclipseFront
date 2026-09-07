@@ -119,7 +119,7 @@ void AEFPlayerController::SetupInputComponent()
     InputComponent->BindKey(EKeys::RightMouseButton, IE_Pressed, this, &AEFPlayerController::HandleContextOrderPressed);
     InputComponent->BindKey(EKeys::RightMouseButton, IE_Released, this, &AEFPlayerController::HandleContextOrderReleased);
     InputComponent->BindKey(EKeys::LeftMouseButton, IE_Pressed, this, &AEFPlayerController::HandleSelectionPressed);
-    InputComponent->BindKey(EKeys::S, IE_Pressed, this, &AEFPlayerController::HandleStopOrder);
+    InputComponent->BindKey(EKeys::SpaceBar, IE_Pressed, this, &AEFPlayerController::HandleStopOrder);
     InputComponent->BindKey(EKeys::H, IE_Pressed, this, &AEFPlayerController::HandleHoldPositionOrder);
 }
 

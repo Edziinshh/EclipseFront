@@ -72,7 +72,8 @@ Pair B / West  <->  Pair B / East
 
 - Свободная камера сверху под углом.
 - Edge scroll и WASD pan; middle-mouse drag — целевая функция.
-- `Space` удерживает/возвращает камеру к выбранному герою.
+- `T` удерживает/возвращает камеру к выбранному герою.
+- `Space` останавливает текущий приказ героя.
 - RMB: контекстная команда move/attack/interact.
 - LMB: selection.
 - QWER и дополнительные слоты: abilities/items.

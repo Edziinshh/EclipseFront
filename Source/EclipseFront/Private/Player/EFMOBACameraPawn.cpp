@@ -51,7 +51,7 @@ void AEFMOBACameraPawn::Tick(float DeltaSeconds)
         return;
     }
 
-    if (PlayerController->IsInputKeyDown(EKeys::SpaceBar))
+    if (PlayerController->IsInputKeyDown(EKeys::T))
     {
         if (const AEFHeroCharacter* Hero = PlayerController->GetControlledHero())
         {
