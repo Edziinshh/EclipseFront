@@ -119,6 +119,8 @@ void AEFPlayerController::SetupInputComponent()
     InputComponent->BindKey(EKeys::RightMouseButton, IE_Pressed, this, &AEFPlayerController::HandleContextOrderPressed);
     InputComponent->BindKey(EKeys::RightMouseButton, IE_Released, this, &AEFPlayerController::HandleContextOrderReleased);
     InputComponent->BindKey(EKeys::LeftMouseButton, IE_Pressed, this, &AEFPlayerController::HandleSelectionPressed);
+    InputComponent->BindKey(EKeys::S, IE_Pressed, this, &AEFPlayerController::HandleStopOrder);
+    InputComponent->BindKey(EKeys::H, IE_Pressed, this, &AEFPlayerController::HandleHoldPositionOrder);
 }
 
 void AEFPlayerController::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
@@ -153,6 +155,23 @@ void AEFPlayerController::HandleContextOrderPressed()
 }
 
 void AEFPlayerController::HandleContextOrderReleased()
+{
+    CancelLocalContinuousOrder();
+}
+
+void AEFPlayerController::HandleStopOrder()
+{
+    CancelLocalContinuousOrder();
+    ServerRequestStop(false);
+}
+
+void AEFPlayerController::HandleHoldPositionOrder()
+{
+    CancelLocalContinuousOrder();
+    ServerRequestStop(true);
+}
+
+void AEFPlayerController::CancelLocalContinuousOrder()
 {
     bContextOrderHeld = false;
     bHasLastHeldMoveDestination = false;
@@ -319,6 +338,7 @@ void AEFPlayerController::ApplyMoveOrder(const FVector& Destination)
         return;
     }
 
+    bHoldPositionOrderActive = false;
 
     if (UEFCombatComponent* CombatComponent = ControlledHero->GetCombatComponent())
     {
@@ -364,6 +384,7 @@ void AEFPlayerController::ServerRequestAttack_Implementation(AActor* TargetActor
     }
 
     ControlledHero->CancelDirectMove();
+    bHoldPositionOrderActive = false;
     if (UEFCombatComponent* CombatComponent = ControlledHero->GetCombatComponent())
     {
         if (CombatComponent->BeginBasicAttack(TargetActor))
@@ -372,6 +393,28 @@ void AEFPlayerController::ServerRequestAttack_Implementation(AActor* TargetActor
                 EFLog::GetNetContext(this), *GetName(), *ControlledHero->GetName(), *TargetActor->GetName());
         }
     }
+}
+
+void AEFPlayerController::ServerRequestStop_Implementation(bool bHoldPosition)
+{
+    const AEFGameState* Match = GetWorld() ? GetWorld()->GetGameState<AEFGameState>() : nullptr;
+    if (!HasAuthority() || !IsValid(ControlledHero) || ControlledHero->GetOwner() != this
+        || ControlledHero->IsDead() || (Match && Match->GetMatchPhase() == EEFMatchPhase::PostGame))
+    {
+        return;
+    }
+
+    ControlledHero->CancelDirectMove();
+    if (UEFCombatComponent* CombatComponent = ControlledHero->GetCombatComponent())
+    {
+        CombatComponent->CancelBasicAttack();
+    }
+    ControlledHero->StopMovementForAttack();
+    bHoldPositionOrderActive = bHoldPosition;
+
+    UE_LOG(LogEFNetwork, Display, TEXT("[%s] %s accepted controller=%s hero=%s"),
+        EFLog::GetNetContext(this), bHoldPosition ? TEXT("HoldPositionOrder") : TEXT("StopOrder"),
+        *GetName(), *ControlledHero->GetName());
 }
 
 bool AEFPlayerController::ResolveMoveDestination(const FVector& Destination, FVector& OutResolvedDestination, bool& bOutUseNavigation) const

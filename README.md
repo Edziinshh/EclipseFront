@@ -2,7 +2,7 @@
 
 Competitive MOBA на Unreal Engine 5 с серверной авторитетностью и полем боя, которое меняет доступные маршруты во время матча.
 
-Текущий этап: **M3 — Lane Structures**. Это пока не «5v5-игра», а сетевой `Test Match`: проверенный combat loop, волны крипов и однолинейная цепочка осады `T1 → T2 → T3 → 2×T4 → Nexus` с двумя бараками на сторону.
+Текущий этап: **M4 — Playable One-Lane Match**. Это пока не «5v5-игра», а сетевой `Test Match`: проверенный combat loop, волны крипов и однолинейная цепочка осады `T1 → T2 → T3 → 2×T4 → Nexus` с двумя бараками на сторону. M4 добавляет полноценные MOBA-приказы и повторяемый match flow.
 
 ## Быстрый старт
 
@@ -24,6 +24,7 @@ Competitive MOBA на Unreal Engine 5 с серверной авторитетн
 - `Docs/M1_BACKLOG.md` — текущий combat milestone и следующие задачи.
 - `Docs/M2_BACKLOG.md` — первый lane milestone и порядок развития крипов.
 - `Docs/M3_BACKLOG.md` — башни, objectives и следующие шаги линии.
+- `Docs/M4_BACKLOG.md` — управление и стабилизация полного однолинейного матча.
 - `Docs/DEBUGGING.md` — категории логов и порядок отладки сетевого матча.
 - `Source/EclipseFront` — C++ gameplay module.
 - `Config` — gameplay tags, maps и сетевые настройки.

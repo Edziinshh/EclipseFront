@@ -51,6 +51,9 @@ protected:
     UFUNCTION(Server, Reliable)
     void ServerRequestAttack(AActor* TargetActor);
 
+    UFUNCTION(Server, Reliable)
+    void ServerRequestStop(bool bHoldPosition);
+
     UFUNCTION()
     void OnRep_ControlledHero();
 
@@ -58,6 +61,9 @@ private:
     void HandleContextOrderPressed();
     void HandleContextOrderReleased();
     void HandleSelectionPressed();
+    void HandleStopOrder();
+    void HandleHoldPositionOrder();
+    void CancelLocalContinuousOrder();
     void DrawAttackRanges(float Lifetime) const;
     void IssueContextOrder(bool bContinuousUpdate);
     void ApplyMoveOrder(const FVector& Destination);
@@ -74,4 +80,5 @@ private:
     bool bContextOrderHeld = false;
     bool bHasLastHeldMoveDestination = false;
     bool bAttackRangesHeld = false;
+    bool bHoldPositionOrderActive = false;
 };
