@@ -71,6 +71,11 @@ void AEFPlayerController::PlayerTick(float DeltaTime)
 {
     Super::PlayerTick(DeltaTime);
 
+    if (HasAuthority())
+    {
+        TickAttackMove(DeltaTime);
+    }
+
     if (!IsLocalController())
     {
         return;
@@ -121,6 +126,7 @@ void AEFPlayerController::SetupInputComponent()
     InputComponent->BindKey(EKeys::LeftMouseButton, IE_Pressed, this, &AEFPlayerController::HandleSelectionPressed);
     InputComponent->BindKey(EKeys::SpaceBar, IE_Pressed, this, &AEFPlayerController::HandleStopOrder);
     InputComponent->BindKey(EKeys::H, IE_Pressed, this, &AEFPlayerController::HandleHoldPositionOrder);
+    InputComponent->BindKey(EKeys::Four, IE_Pressed, this, &AEFPlayerController::HandleAttackMovePressed);
 }
 
 void AEFPlayerController::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
@@ -147,6 +153,7 @@ void AEFPlayerController::SetControlledHero(AEFHeroCharacter* NewHero)
 
 void AEFPlayerController::HandleContextOrderPressed()
 {
+    CancelLocalAttackMovePlacement();
     bContextOrderHeld = true;
     HeldOrderTimeUntilUpdate = HeldOrderUpdateInterval;
     bHasLastHeldMoveDestination = false;
@@ -162,13 +169,28 @@ void AEFPlayerController::HandleContextOrderReleased()
 void AEFPlayerController::HandleStopOrder()
 {
     CancelLocalContinuousOrder();
+    CancelLocalAttackMovePlacement();
     ServerRequestStop(false);
 }
 
 void AEFPlayerController::HandleHoldPositionOrder()
 {
     CancelLocalContinuousOrder();
+    CancelLocalAttackMovePlacement();
     ServerRequestStop(true);
+}
+
+void AEFPlayerController::HandleAttackMovePressed()
+{
+    if (!IsLocalController() || !IsValid(ControlledHero))
+    {
+        return;
+    }
+
+    CancelLocalContinuousOrder();
+    bAttackMovePlacementPending = true;
+    UE_LOG(LogEFCore, Verbose, TEXT("[%s] AttackMove placement armed controller=%s"),
+        EFLog::GetNetContext(this), *GetName());
 }
 
 void AEFPlayerController::CancelLocalContinuousOrder()
@@ -176,6 +198,11 @@ void AEFPlayerController::CancelLocalContinuousOrder()
     bContextOrderHeld = false;
     bHasLastHeldMoveDestination = false;
     LastHeldAttackTarget.Reset();
+}
+
+void AEFPlayerController::CancelLocalAttackMovePlacement()
+{
+    bAttackMovePlacementPending = false;
 }
 
 void AEFPlayerController::IssueContextOrder(bool bContinuousUpdate)
@@ -237,6 +264,19 @@ void AEFPlayerController::HandleSelectionPressed()
 {
     if (!IsLocalController())
     {
+        return;
+    }
+
+    if (bAttackMovePlacementPending)
+    {
+        bAttackMovePlacementPending = false;
+        FHitResult GroundHit;
+        if (GetHitResultUnderCursor(ECC_Visibility, false, GroundHit) && GroundHit.bBlockingHit)
+        {
+            ServerRequestAttackMove(GroundHit.ImpactPoint);
+            DrawDebugCircle(GetWorld(), GroundHit.ImpactPoint + FVector(0.0f, 0.0f, 12.0f), 85.0f, 32,
+                FColor::Cyan, false, 0.8f, 0, 4.0f, FVector::ForwardVector, FVector::RightVector, false);
+        }
         return;
     }
 
@@ -338,11 +378,22 @@ void AEFPlayerController::ApplyMoveOrder(const FVector& Destination)
         return;
     }
 
+    CancelAttackMoveOrder();
     bHoldPositionOrderActive = false;
 
     if (UEFCombatComponent* CombatComponent = ControlledHero->GetCombatComponent())
     {
         CombatComponent->CancelBasicAttack();
+    }
+
+    IssueResolvedMove(ResolvedDestination, bUseNavigation);
+}
+
+void AEFPlayerController::IssueResolvedMove(const FVector& ResolvedDestination, bool bUseNavigation)
+{
+    if (!IsValid(ControlledHero))
+    {
+        return;
     }
 
     if (bUseNavigation)
@@ -383,6 +434,7 @@ void AEFPlayerController::ServerRequestAttack_Implementation(AActor* TargetActor
         return;
     }
 
+    CancelAttackMoveOrder();
     ControlledHero->CancelDirectMove();
     bHoldPositionOrderActive = false;
     if (UEFCombatComponent* CombatComponent = ControlledHero->GetCombatComponent())
@@ -404,6 +456,7 @@ void AEFPlayerController::ServerRequestStop_Implementation(bool bHoldPosition)
         return;
     }
 
+    CancelAttackMoveOrder();
     ControlledHero->CancelDirectMove();
     if (UEFCombatComponent* CombatComponent = ControlledHero->GetCombatComponent())
     {
@@ -415,6 +468,114 @@ void AEFPlayerController::ServerRequestStop_Implementation(bool bHoldPosition)
     UE_LOG(LogEFNetwork, Display, TEXT("[%s] %s accepted controller=%s hero=%s"),
         EFLog::GetNetContext(this), bHoldPosition ? TEXT("HoldPositionOrder") : TEXT("StopOrder"),
         *GetName(), *ControlledHero->GetName());
+}
+
+void AEFPlayerController::ServerRequestAttackMove_Implementation(FVector_NetQuantize Destination)
+{
+    const AEFGameState* Match = GetWorld() ? GetWorld()->GetGameState<AEFGameState>() : nullptr;
+    if (!HasAuthority() || !IsValid(ControlledHero) || ControlledHero->GetOwner() != this
+        || ControlledHero->IsDead() || (Match && Match->GetMatchPhase() == EEFMatchPhase::PostGame))
+    {
+        return;
+    }
+
+    FVector ResolvedDestination = FVector::ZeroVector;
+    bool bUseNavigation = false;
+    if (!ResolveMoveDestination(Destination, ResolvedDestination, bUseNavigation))
+    {
+        return;
+    }
+
+    if (UEFCombatComponent* CombatComponent = ControlledHero->GetCombatComponent())
+    {
+        CombatComponent->CancelBasicAttack();
+    }
+    ControlledHero->CancelDirectMove();
+    bHoldPositionOrderActive = false;
+    bAttackMoveOrderActive = true;
+    bAttackMoveUsesNavigation = bUseNavigation;
+    AttackMoveDestination = ResolvedDestination;
+    AttackMoveTimeUntilScan = 0.0f;
+    AttackMoveTarget.Reset();
+    bAttackMoveAwaitingTargetResolution = false;
+    IssueResolvedMove(AttackMoveDestination, bAttackMoveUsesNavigation);
+
+    UE_LOG(LogEFNetwork, Display, TEXT("[%s] AttackMoveOrder accepted controller=%s hero=%s destination=%s"),
+        EFLog::GetNetContext(this), *GetName(), *ControlledHero->GetName(), *AttackMoveDestination.ToCompactString());
+}
+
+void AEFPlayerController::TickAttackMove(float DeltaTime)
+{
+    if (!bAttackMoveOrderActive || !IsValid(ControlledHero) || ControlledHero->IsDead())
+    {
+        return;
+    }
+
+    const AEFGameState* Match = GetWorld() ? GetWorld()->GetGameState<AEFGameState>() : nullptr;
+    if (Match && Match->GetMatchPhase() == EEFMatchPhase::PostGame)
+    {
+        CancelAttackMoveOrder();
+        return;
+    }
+
+    UEFCombatComponent* CombatComponent = ControlledHero->GetCombatComponent();
+    AActor* CurrentTarget = AttackMoveTarget.Get();
+    if (CurrentTarget && !IsDeadOrderTarget(CurrentTarget)
+        && CombatComponent && CombatComponent->GetAttackTarget() == CurrentTarget
+        && CombatComponent->GetAttackState() != EEFAttackState::Idle)
+    {
+        return;
+    }
+
+    if (bAttackMoveAwaitingTargetResolution)
+    {
+        AttackMoveTarget.Reset();
+        bAttackMoveAwaitingTargetResolution = false;
+        if (CombatComponent)
+        {
+            CombatComponent->CancelBasicAttack();
+        }
+        ResumeAttackMovePath();
+    }
+
+    AttackMoveTimeUntilScan -= DeltaTime;
+    if (AttackMoveTimeUntilScan <= 0.0f)
+    {
+        AttackMoveTimeUntilScan = AttackMoveScanInterval;
+        if (AActor* NewTarget = FindAttackMoveTarget())
+        {
+            if (CombatComponent && CombatComponent->BeginBasicAttack(NewTarget))
+            {
+                AttackMoveTarget = NewTarget;
+                bAttackMoveAwaitingTargetResolution = true;
+                UE_LOG(LogEFCombat, Verbose, TEXT("[%s] AttackMove acquired hero=%s target=%s"),
+                    EFLog::GetNetContext(this), *ControlledHero->GetName(), *NewTarget->GetName());
+                return;
+            }
+        }
+    }
+
+    if (FVector::DistSquared2D(ControlledHero->GetActorLocation(), AttackMoveDestination)
+        <= FMath::Square(AttackMoveAcceptanceRadius))
+    {
+        CancelAttackMoveOrder();
+    }
+}
+
+void AEFPlayerController::CancelAttackMoveOrder()
+{
+    bAttackMoveOrderActive = false;
+    AttackMoveTarget.Reset();
+    bAttackMoveAwaitingTargetResolution = false;
+    AttackMoveTimeUntilScan = 0.0f;
+}
+
+void AEFPlayerController::ResumeAttackMovePath()
+{
+    if (bAttackMoveOrderActive)
+    {
+        IssueResolvedMove(AttackMoveDestination, bAttackMoveUsesNavigation);
+    }
 }
 
 bool AEFPlayerController::ResolveMoveDestination(const FVector& Destination, FVector& OutResolvedDestination, bool& bOutUseNavigation) const
@@ -528,6 +689,64 @@ AActor* AEFPlayerController::FindAssistedAttackTarget(const FVector& CursorWorld
             BestDistanceSquared = DistanceSquared;
             BestTarget = Candidate;
         }
+    }
+    return BestTarget;
+}
+
+AActor* AEFPlayerController::FindAttackMoveTarget() const
+{
+    if (!IsValid(ControlledHero) || !GetWorld())
+    {
+        return nullptr;
+    }
+
+    const AEFPlayerState* SourceState = GetPlayerState<AEFPlayerState>();
+    const EEFMatchSide SourceSide = SourceState ? SourceState->GetMatchSide() : EEFMatchSide::Unassigned;
+    if (SourceSide == EEFMatchSide::Unassigned)
+    {
+        return nullptr;
+    }
+
+    AActor* BestTarget = nullptr;
+    float BestDistanceSquared = FMath::Square(AttackMoveAcquisitionRadius);
+    const auto ConsiderCandidate = [this, SourceSide, &BestTarget, &BestDistanceSquared](AActor* Candidate)
+    {
+        if (!IsValid(Candidate) || Candidate == ControlledHero || IsDeadOrderTarget(Candidate))
+        {
+            return;
+        }
+
+        const EEFMatchSide CandidateSide = GetOrderTargetSide(Candidate);
+        if (CandidateSide == EEFMatchSide::Unassigned || CandidateSide == SourceSide)
+        {
+            return;
+        }
+
+        if (const AEFLaneTower* Tower = Cast<AEFLaneTower>(Candidate); Tower && !Tower->IsVulnerable())
+        {
+            return;
+        }
+
+        const float DistanceSquared = FVector::DistSquared2D(
+            ControlledHero->GetActorLocation(), Candidate->GetActorLocation());
+        if (DistanceSquared <= BestDistanceSquared)
+        {
+            BestDistanceSquared = DistanceSquared;
+            BestTarget = Candidate;
+        }
+    };
+
+    for (TActorIterator<AEFHeroCharacter> It(GetWorld()); It; ++It)
+    {
+        ConsiderCandidate(*It);
+    }
+    for (TActorIterator<AEFCreepCharacter> It(GetWorld()); It; ++It)
+    {
+        ConsiderCandidate(*It);
+    }
+    for (TActorIterator<AEFLaneTower> It(GetWorld()); It; ++It)
+    {
+        ConsiderCandidate(*It);
     }
     return BestTarget;
 }

@@ -42,6 +42,15 @@ protected:
     UPROPERTY(EditDefaultsOnly, Category="Eclipse Front|Orders", meta=(ClampMin="1.0"))
     float HeldOrderMinCursorDistance = 75.0f;
 
+    UPROPERTY(EditDefaultsOnly, Category="Eclipse Front|Orders", meta=(ClampMin="100.0"))
+    float AttackMoveAcquisitionRadius = 650.0f;
+
+    UPROPERTY(EditDefaultsOnly, Category="Eclipse Front|Orders", meta=(ClampMin="0.05", ClampMax="1.0"))
+    float AttackMoveScanInterval = 0.15f;
+
+    UPROPERTY(EditDefaultsOnly, Category="Eclipse Front|Orders", meta=(ClampMin="1.0"))
+    float AttackMoveAcceptanceRadius = 100.0f;
+
     UFUNCTION(Server, Reliable)
     void ServerRequestMove(FVector_NetQuantize Destination);
 
@@ -54,6 +63,9 @@ protected:
     UFUNCTION(Server, Reliable)
     void ServerRequestStop(bool bHoldPosition);
 
+    UFUNCTION(Server, Reliable)
+    void ServerRequestAttackMove(FVector_NetQuantize Destination);
+
     UFUNCTION()
     void OnRep_ControlledHero();
 
@@ -63,12 +75,19 @@ private:
     void HandleSelectionPressed();
     void HandleStopOrder();
     void HandleHoldPositionOrder();
+    void HandleAttackMovePressed();
     void CancelLocalContinuousOrder();
+    void CancelLocalAttackMovePlacement();
     void DrawAttackRanges(float Lifetime) const;
     void IssueContextOrder(bool bContinuousUpdate);
     void ApplyMoveOrder(const FVector& Destination);
+    void IssueResolvedMove(const FVector& ResolvedDestination, bool bUseNavigation);
+    void TickAttackMove(float DeltaTime);
+    void CancelAttackMoveOrder();
+    void ResumeAttackMovePath();
     bool ResolveMoveDestination(const FVector& Destination, FVector& OutResolvedDestination, bool& bOutUseNavigation) const;
     AActor* FindAssistedAttackTarget(const FVector& CursorWorldLocation) const;
+    AActor* FindAttackMoveTarget() const;
 
     UPROPERTY(Transient)
     TObjectPtr<AEFHeroCharacter> LocallySelectedUnit;
@@ -81,4 +100,11 @@ private:
     bool bHasLastHeldMoveDestination = false;
     bool bAttackRangesHeld = false;
     bool bHoldPositionOrderActive = false;
+    bool bAttackMovePlacementPending = false;
+    bool bAttackMoveOrderActive = false;
+    bool bAttackMoveUsesNavigation = false;
+    bool bAttackMoveAwaitingTargetResolution = false;
+    FVector AttackMoveDestination = FVector::ZeroVector;
+    float AttackMoveTimeUntilScan = 0.0f;
+    TWeakObjectPtr<AActor> AttackMoveTarget;
 };
