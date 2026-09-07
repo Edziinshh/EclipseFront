@@ -5,6 +5,16 @@
 
 class AEFHeroCharacter;
 
+UENUM(BlueprintType)
+enum class EEFOrderIndicatorType : uint8
+{
+    None,
+    Move,
+    Attack,
+    AttackMove,
+    HoldPosition
+};
+
 UCLASS()
 class ECLIPSEFRONT_API AEFPlayerController : public APlayerController
 {
@@ -79,18 +89,30 @@ private:
     void CancelLocalContinuousOrder();
     void CancelLocalAttackMovePlacement();
     void DrawAttackRanges(float Lifetime) const;
+    void DrawCurrentOrderIndicator() const;
     void IssueContextOrder(bool bContinuousUpdate);
     void ApplyMoveOrder(const FVector& Destination);
     void IssueResolvedMove(const FVector& ResolvedDestination, bool bUseNavigation);
     void TickAttackMove(float DeltaTime);
+    void TickOrderIndicator();
     void CancelAttackMoveOrder();
     void ResumeAttackMovePath();
+    void SetOrderIndicator(EEFOrderIndicatorType NewType, const FVector& Destination, AActor* TargetActor);
     bool ResolveMoveDestination(const FVector& Destination, FVector& OutResolvedDestination, bool& bOutUseNavigation) const;
     AActor* FindAssistedAttackTarget(const FVector& CursorWorldLocation) const;
     AActor* FindAttackMoveTarget() const;
 
     UPROPERTY(Transient)
     TObjectPtr<AEFHeroCharacter> LocallySelectedUnit;
+
+    UPROPERTY(Replicated)
+    EEFOrderIndicatorType CurrentOrderIndicator = EEFOrderIndicatorType::None;
+
+    UPROPERTY(Replicated)
+    FVector_NetQuantize CurrentOrderDestination = FVector::ZeroVector;
+
+    UPROPERTY(Replicated)
+    TObjectPtr<AActor> CurrentOrderTarget;
 
     TWeakObjectPtr<AActor> LastHeldAttackTarget;
     FVector LastHeldMoveDestination = FVector::ZeroVector;

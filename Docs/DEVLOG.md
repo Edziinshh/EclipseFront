@@ -21,6 +21,13 @@
 - `EclipseFrontEditor Win64 Development` успешно собран; оба Automation-теста `EclipseFront.*` прошли, ручной сетевой тест ожидает выполнения.
 - Владелец подтвердил в PIE работу базового цикла `4 + LMB → движение → автоатака → продолжение пути`; серверный журнал содержит принятые `AttackMoveOrder` без gameplay-ошибок. Полная зеркальная матрица listen server + client остаётся открытой.
 
+### M4.2b — Индикация приказов
+
+- Добавлено owner-only реплицируемое presentation-состояние текущего приказа: тип, destination и выбранная сервером цель.
+- Move отмечается зелёным, attack-move — голубым, attack target — красно-оранжевым, Hold Position — жёлтым.
+- Маркеры автоматически очищаются при завершении или отмене приказа, смерти героя и PostGame; линия до destination не выдаётся за фактический NavMesh path.
+- `EclipseFrontEditor Win64 Development` успешно собран, оба Automation-теста `EclipseFront.*` прошли; ручной сетевой тест ожидает выполнения.
+
 ## 2026-09-05
 
 ### M4 — Playable One-Lane Match

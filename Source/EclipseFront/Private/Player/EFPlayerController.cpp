@@ -74,6 +74,7 @@ void AEFPlayerController::PlayerTick(float DeltaTime)
     if (HasAuthority())
     {
         TickAttackMove(DeltaTime);
+        TickOrderIndicator();
     }
 
     if (!IsLocalController())
@@ -92,6 +93,7 @@ void AEFPlayerController::PlayerTick(float DeltaTime)
     {
         DrawAttackRanges(0.0f);
     }
+    DrawCurrentOrderIndicator();
 
     if (!bContextOrderHeld)
     {
@@ -133,6 +135,9 @@ void AEFPlayerController::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& 
 {
     Super::GetLifetimeReplicatedProps(OutLifetimeProps);
     DOREPLIFETIME_CONDITION(AEFPlayerController, ControlledHero, COND_OwnerOnly);
+    DOREPLIFETIME_CONDITION(AEFPlayerController, CurrentOrderIndicator, COND_OwnerOnly);
+    DOREPLIFETIME_CONDITION(AEFPlayerController, CurrentOrderDestination, COND_OwnerOnly);
+    DOREPLIFETIME_CONDITION(AEFPlayerController, CurrentOrderTarget, COND_OwnerOnly);
 }
 
 void AEFPlayerController::SetControlledHero(AEFHeroCharacter* NewHero)
@@ -143,6 +148,7 @@ void AEFPlayerController::SetControlledHero(AEFHeroCharacter* NewHero)
     }
 
     ControlledHero = NewHero;
+    SetOrderIndicator(EEFOrderIndicatorType::None, FVector::ZeroVector, nullptr);
     if (ControlledHero)
     {
         ControlledHero->SetOwner(this);
@@ -349,6 +355,51 @@ void AEFPlayerController::DrawAttackRanges(float Lifetime) const
     }
 }
 
+void AEFPlayerController::DrawCurrentOrderIndicator() const
+{
+    UWorld* World = GetWorld();
+    if (!World || !IsValid(ControlledHero) || CurrentOrderIndicator == EEFOrderIndicatorType::None)
+    {
+        return;
+    }
+
+    FVector HeroBase = ControlledHero->GetActorLocation();
+    HeroBase.Z -= ControlledHero->GetCapsuleComponent()->GetScaledCapsuleHalfHeight();
+    HeroBase.Z += 12.0f;
+
+    if (CurrentOrderIndicator == EEFOrderIndicatorType::Move
+        || CurrentOrderIndicator == EEFOrderIndicatorType::AttackMove)
+    {
+        const FColor OrderColor = CurrentOrderIndicator == EEFOrderIndicatorType::AttackMove
+            ? FColor::Cyan : FColor::Green;
+        const FVector Destination = FVector(CurrentOrderDestination) + FVector(0.0f, 0.0f, 12.0f);
+        DrawDebugCircle(World, Destination, 90.0f, 40, OrderColor, false, 0.0f, 0, 4.0f,
+            FVector::ForwardVector, FVector::RightVector, false);
+        DrawDebugLine(World, HeroBase, Destination, OrderColor, false, 0.0f, 0, 2.0f);
+    }
+    else if (CurrentOrderIndicator == EEFOrderIndicatorType::HoldPosition)
+    {
+        DrawDebugCircle(World, HeroBase, 120.0f, 40, FColor::Yellow, false, 0.0f, 0, 4.0f,
+            FVector::ForwardVector, FVector::RightVector, false);
+    }
+
+    if (IsValid(CurrentOrderTarget))
+    {
+        FVector TargetBase = CurrentOrderTarget->GetActorLocation();
+        float TargetRadius = 90.0f;
+        if (const ACharacter* TargetCharacter = Cast<ACharacter>(CurrentOrderTarget))
+        {
+            TargetBase.Z -= TargetCharacter->GetCapsuleComponent()->GetScaledCapsuleHalfHeight();
+            TargetRadius = TargetCharacter->GetCapsuleComponent()->GetScaledCapsuleRadius() + 35.0f;
+        }
+        TargetBase.Z += 14.0f;
+        const FColor TargetColor(255, 90, 20);
+        DrawDebugCircle(World, TargetBase, TargetRadius, 40, TargetColor, false, 0.0f, 0, 5.0f,
+            FVector::ForwardVector, FVector::RightVector, false);
+        DrawDebugLine(World, HeroBase, TargetBase, TargetColor, false, 0.0f, 0, 2.5f);
+    }
+}
+
 void AEFPlayerController::ServerRequestMove_Implementation(FVector_NetQuantize Destination)
 {
     ApplyMoveOrder(Destination);
@@ -387,6 +438,7 @@ void AEFPlayerController::ApplyMoveOrder(const FVector& Destination)
     }
 
     IssueResolvedMove(ResolvedDestination, bUseNavigation);
+    SetOrderIndicator(EEFOrderIndicatorType::Move, ResolvedDestination, nullptr);
 }
 
 void AEFPlayerController::IssueResolvedMove(const FVector& ResolvedDestination, bool bUseNavigation)
@@ -441,6 +493,7 @@ void AEFPlayerController::ServerRequestAttack_Implementation(AActor* TargetActor
     {
         if (CombatComponent->BeginBasicAttack(TargetActor))
         {
+            SetOrderIndicator(EEFOrderIndicatorType::Attack, FVector::ZeroVector, TargetActor);
             UE_LOG(LogEFNetwork, Display, TEXT("[%s] AttackOrder accepted controller=%s hero=%s target=%s"),
                 EFLog::GetNetContext(this), *GetName(), *ControlledHero->GetName(), *TargetActor->GetName());
         }
@@ -464,6 +517,8 @@ void AEFPlayerController::ServerRequestStop_Implementation(bool bHoldPosition)
     }
     ControlledHero->StopMovementForAttack();
     bHoldPositionOrderActive = bHoldPosition;
+    SetOrderIndicator(bHoldPosition ? EEFOrderIndicatorType::HoldPosition : EEFOrderIndicatorType::None,
+        ControlledHero->GetActorLocation(), nullptr);
 
     UE_LOG(LogEFNetwork, Display, TEXT("[%s] %s accepted controller=%s hero=%s"),
         EFLog::GetNetContext(this), bHoldPosition ? TEXT("HoldPositionOrder") : TEXT("StopOrder"),
@@ -499,6 +554,7 @@ void AEFPlayerController::ServerRequestAttackMove_Implementation(FVector_NetQuan
     AttackMoveTarget.Reset();
     bAttackMoveAwaitingTargetResolution = false;
     IssueResolvedMove(AttackMoveDestination, bAttackMoveUsesNavigation);
+    SetOrderIndicator(EEFOrderIndicatorType::AttackMove, AttackMoveDestination, nullptr);
 
     UE_LOG(LogEFNetwork, Display, TEXT("[%s] AttackMoveOrder accepted controller=%s hero=%s destination=%s"),
         EFLog::GetNetContext(this), *GetName(), *ControlledHero->GetName(), *AttackMoveDestination.ToCompactString());
@@ -506,8 +562,14 @@ void AEFPlayerController::ServerRequestAttackMove_Implementation(FVector_NetQuan
 
 void AEFPlayerController::TickAttackMove(float DeltaTime)
 {
-    if (!bAttackMoveOrderActive || !IsValid(ControlledHero) || ControlledHero->IsDead())
+    if (!bAttackMoveOrderActive)
     {
+        return;
+    }
+
+    if (!IsValid(ControlledHero) || ControlledHero->IsDead())
+    {
+        CancelAttackMoveOrder();
         return;
     }
 
@@ -531,6 +593,8 @@ void AEFPlayerController::TickAttackMove(float DeltaTime)
     {
         AttackMoveTarget.Reset();
         bAttackMoveAwaitingTargetResolution = false;
+        CurrentOrderTarget = nullptr;
+        ForceNetUpdate();
         if (CombatComponent)
         {
             CombatComponent->CancelBasicAttack();
@@ -548,6 +612,8 @@ void AEFPlayerController::TickAttackMove(float DeltaTime)
             {
                 AttackMoveTarget = NewTarget;
                 bAttackMoveAwaitingTargetResolution = true;
+                CurrentOrderTarget = NewTarget;
+                ForceNetUpdate();
                 UE_LOG(LogEFCombat, Verbose, TEXT("[%s] AttackMove acquired hero=%s target=%s"),
                     EFLog::GetNetContext(this), *ControlledHero->GetName(), *NewTarget->GetName());
                 return;
@@ -562,12 +628,60 @@ void AEFPlayerController::TickAttackMove(float DeltaTime)
     }
 }
 
+void AEFPlayerController::TickOrderIndicator()
+{
+    if (CurrentOrderIndicator == EEFOrderIndicatorType::None
+        || CurrentOrderIndicator == EEFOrderIndicatorType::AttackMove)
+    {
+        return;
+    }
+
+    if (!IsValid(ControlledHero) || ControlledHero->IsDead())
+    {
+        SetOrderIndicator(EEFOrderIndicatorType::None, FVector::ZeroVector, nullptr);
+        return;
+    }
+
+    const AEFGameState* Match = GetWorld() ? GetWorld()->GetGameState<AEFGameState>() : nullptr;
+    if (Match && Match->GetMatchPhase() == EEFMatchPhase::PostGame)
+    {
+        SetOrderIndicator(EEFOrderIndicatorType::None, FVector::ZeroVector, nullptr);
+        return;
+    }
+
+    if (CurrentOrderIndicator == EEFOrderIndicatorType::Move)
+    {
+        if (FVector::DistSquared2D(ControlledHero->GetActorLocation(), FVector(CurrentOrderDestination))
+            <= FMath::Square(AttackMoveAcceptanceRadius))
+        {
+            SetOrderIndicator(EEFOrderIndicatorType::None, FVector::ZeroVector, nullptr);
+        }
+        return;
+    }
+
+    if (CurrentOrderIndicator == EEFOrderIndicatorType::Attack)
+    {
+        const UEFCombatComponent* CombatComponent = ControlledHero->GetCombatComponent();
+        if (!IsValid(CurrentOrderTarget) || IsDeadOrderTarget(CurrentOrderTarget)
+            || !CombatComponent || CombatComponent->GetAttackState() == EEFAttackState::Idle
+            || CombatComponent->GetAttackTarget() != CurrentOrderTarget)
+        {
+            SetOrderIndicator(EEFOrderIndicatorType::None, FVector::ZeroVector, nullptr);
+        }
+    }
+}
+
 void AEFPlayerController::CancelAttackMoveOrder()
 {
+    const bool bWasActive = bAttackMoveOrderActive;
     bAttackMoveOrderActive = false;
     AttackMoveTarget.Reset();
     bAttackMoveAwaitingTargetResolution = false;
     AttackMoveTimeUntilScan = 0.0f;
+    if (bWasActive)
+    {
+        SetOrderIndicator(EEFOrderIndicatorType::None, FVector::ZeroVector, nullptr);
+    }
 }
 
 void AEFPlayerController::ResumeAttackMovePath()
@@ -576,6 +690,20 @@ void AEFPlayerController::ResumeAttackMovePath()
     {
         IssueResolvedMove(AttackMoveDestination, bAttackMoveUsesNavigation);
     }
+}
+
+void AEFPlayerController::SetOrderIndicator(
+    EEFOrderIndicatorType NewType, const FVector& Destination, AActor* TargetActor)
+{
+    if (!HasAuthority())
+    {
+        return;
+    }
+
+    CurrentOrderIndicator = NewType;
+    CurrentOrderDestination = Destination;
+    CurrentOrderTarget = TargetActor;
+    ForceNetUpdate();
 }
 
 bool AEFPlayerController::ResolveMoveDestination(const FVector& Destination, FVector& OutResolvedDestination, bool& bOutUseNavigation) const

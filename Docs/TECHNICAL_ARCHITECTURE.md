@@ -46,6 +46,8 @@ Local input
 
 Attack-move задаётся верхней клавишей `4` и последующим LMB по земле. Клиент передаёт только destination; сервер валидирует её тем же NavigationSystem-путём, хранит активный приказ и с интервалом ищет ближайшую допустимую вражескую цель в acquisition radius. Герои, крипы и только уязвимые строения являются допустимыми целями. После смерти или потери текущей цели герой продолжает движение к исходной точке. RMB, прямая атака, Stop и Hold Position отменяют attack-move. Выбор цели и возобновление пути не доверяются клиенту.
 
+Presentation текущего приказа строится из owner-only реплицируемых полей `AEFPlayerController`: тип приказа, destination и server-selected target. Клиент рисует только локальную индикацию и не влияет ею на движение или combat. Сервер очищает presentation state при завершении/отмене приказа, смерти героя и PostGame. Линия обозначает направление к destination, а не рассчитанный NavigationSystem path.
+
 ## GAS
 
 `UEFAbilitySystemComponent` наследует `UAbilitySystemComponent`. Параллельная ability-система не создаётся.
