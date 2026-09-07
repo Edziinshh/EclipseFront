@@ -34,8 +34,20 @@
 - [x] Собрать Editor target UE 5.8.
 - [ ] Проверить индикацию на listen server + client.
 
+## M4.3 — Creep leash, return и separation
+
+- [x] Добавить серверную state machine `Marching → Engaging → Returning`.
+- [x] Фиксировать lane anchor при начале engagement.
+- [x] Снимать агро при превышении leash крипом или целью.
+- [x] Ограничить непрерывное агро на героя четырьмя секундами.
+- [x] Во время Returning запрещать новое агро и сначала возвращать к lane anchor.
+- [x] Сохранить приоритет вражеского крипа над героем и строением.
+- [x] Включить мягкое серверное RVO-separation, сохранив Pawn collision Ignore против deadlock.
+- [x] Собрать Editor target UE 5.8.
+- [x] Пройти Automation tests.
+- [ ] Пройти ручной сетевой тест listen server + client.
+
 ## Следующие срезы
 
-- M4.3: формальные leash/aggro/return rules и устойчивый body-blocking волн.
 - M4.4: ranged creep projectile и перенос параметров юнитов в data-driven конфигурацию.
 - M4.5: countdown, повторный матч без перезапуска Editor и сетевой smoke test полного матча.

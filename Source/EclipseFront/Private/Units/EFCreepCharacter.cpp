@@ -90,6 +90,9 @@ AEFCreepCharacter::AEFCreepCharacter()
     GetCharacterMovement()->bOrientRotationToMovement = true;
     GetCharacterMovement()->RotationRate = FRotator(0.0f, 600.0f, 0.0f);
     GetCharacterMovement()->MaxWalkSpeed = 360.0f;
+    GetCharacterMovement()->bUseRVOAvoidance = true;
+    GetCharacterMovement()->AvoidanceConsiderationRadius = 140.0f;
+    GetCharacterMovement()->AvoidanceWeight = 0.35f;
     bUseControllerRotationYaw = false;
 
     SetNetCullDistanceSquared(FMath::Square(15000.0f));
@@ -168,36 +171,64 @@ void AEFCreepCharacter::Tick(float DeltaSeconds)
         return;
     }
 
+    if (LaneState == EEFCreepLaneState::Returning)
+    {
+        UpdateReturningToLane(DeltaSeconds);
+        return;
+    }
+
     AggroScanTimeRemaining -= DeltaSeconds;
+    if (LaneState == EEFCreepLaneState::Engaging)
+    {
+        AActor* CurrentTarget = CombatComponent ? CombatComponent->GetAttackTarget() : nullptr;
+        if (!IsCurrentTargetAlive())
+        {
+            BeginReturnToLane(TEXT("TargetLost"));
+            return;
+        }
+
+        if (AggroScanTimeRemaining <= 0.0f)
+        {
+            AggroScanTimeRemaining = AggroScanInterval;
+            AActor* PreferredTarget = FindNearestHostileTarget();
+            if (PreferredTarget && !Cast<AEFCreepCharacter>(CurrentTarget)
+                && Cast<AEFCreepCharacter>(PreferredTarget))
+            {
+                BeginEngagement(PreferredTarget, true);
+                return;
+            }
+        }
+
+        if (Cast<AEFHeroCharacter>(CurrentTarget))
+        {
+            HeroAggroTimeRemaining = FMath::Max(0.0f, HeroAggroTimeRemaining - DeltaSeconds);
+            if (HeroAggroTimeRemaining <= 0.0f)
+            {
+                BeginReturnToLane(TEXT("HeroAggroExpired"));
+                return;
+            }
+        }
+
+        if (ShouldBreakCurrentLeash())
+        {
+            BeginReturnToLane(TEXT("LeashExceeded"));
+            return;
+        }
+
+        return;
+    }
+
     if (AggroScanTimeRemaining <= 0.0f)
     {
         AggroScanTimeRemaining = AggroScanInterval;
         if (AActor* HostileTarget = FindNearestHostileTarget())
         {
-            AActor* CurrentTarget = CombatComponent ? CombatComponent->GetAttackTarget() : nullptr;
-            const bool bShouldAcquire = !IsValid(CurrentTarget);
-            const bool bShouldRetargetToCreep = IsValid(CurrentTarget)
-                && !Cast<AEFCreepCharacter>(CurrentTarget)
-                && Cast<AEFCreepCharacter>(HostileTarget);
-            if ((bShouldAcquire || bShouldRetargetToCreep)
-                && CombatComponent && CombatComponent->BeginBasicAttack(HostileTarget))
+            BeginEngagement(HostileTarget, false);
+            if (LaneState == EEFCreepLaneState::Engaging)
             {
-                UE_LOG(LogEFAI, Verbose, TEXT("[%s] Creep target side=%s action=%s target=%s"),
-                    EFLog::GetNetContext(this), MatchSide == EEFMatchSide::Dawn ? TEXT("Dawn") : TEXT("Dusk"),
-                    bShouldRetargetToCreep ? TEXT("re-aggroed to") : TEXT("engaged"),
-                    *HostileTarget->GetName());
-                UE_VLOG_ARROW(this, LogEFAI, Display, GetActorLocation(), HostileTarget->GetActorLocation(),
-                    bShouldRetargetToCreep ? FColor::Magenta : FColor::Orange,
-                    TEXT("%s %s"), bShouldRetargetToCreep ? TEXT("Re-aggro") : TEXT("Engage"),
-                    *HostileTarget->GetName());
                 return;
             }
         }
-    }
-
-    if (CombatComponent && CombatComponent->GetAttackTarget())
-    {
-        return;
     }
 
     const FVector PlanarOffset = FVector::VectorPlaneProject(
@@ -239,6 +270,8 @@ void AEFCreepCharacter::InitializeLaneCreep(EEFMatchSide NewMatchSide, const TAr
     MatchSide = NewMatchSide;
     LaneRoute = NewRoute;
     CurrentWaypointIndex = 1;
+    LaneState = EEFCreepLaneState::Marching;
+    EngagementAnchor = GetCurrentLaneAnchor();
     UpdateTeamPresentation();
     ForceNetUpdate();
 
@@ -300,6 +333,157 @@ void AEFCreepCharacter::IssueMoveToCurrentWaypoint()
             LaneRoute.Num() - 1,
             *LaneRoute[CurrentWaypointIndex].ToCompactString());
     }
+}
+
+void AEFCreepCharacter::IssueMoveToReturnAnchor()
+{
+    MoveRetryTimeRemaining = MoveRetryInterval;
+    AAIController* CreepController = Cast<AAIController>(GetController());
+    if (!CreepController)
+    {
+        return;
+    }
+
+    const EPathFollowingRequestResult::Type MoveResult = CreepController->MoveToLocation(
+        EngagementAnchor,
+        ReturnAcceptanceRadius,
+        false,
+        true,
+        true,
+        false,
+        nullptr,
+        false);
+    if (MoveResult == EPathFollowingRequestResult::Failed)
+    {
+        UE_VLOG_ARROW(this, LogEFMovement, Warning, GetActorLocation(), EngagementAnchor, FColor::Red,
+            TEXT("Return to lane anchor failed"));
+    }
+    else
+    {
+        UE_VLOG_ARROW(this, LogEFMovement, Verbose, GetActorLocation(), EngagementAnchor, FColor::Cyan,
+            TEXT("Return to lane anchor result=%d"), static_cast<int32>(MoveResult));
+    }
+}
+
+void AEFCreepCharacter::BeginEngagement(AActor* TargetActor, bool bRetargetingToCreep)
+{
+    if (!HasAuthority() || LaneState == EEFCreepLaneState::Returning || !IsValid(TargetActor) || !CombatComponent)
+    {
+        return;
+    }
+
+    if (LaneState == EEFCreepLaneState::Marching)
+    {
+        EngagementAnchor = GetCurrentLaneAnchor();
+    }
+    if (!CombatComponent->BeginBasicAttack(TargetActor))
+    {
+        return;
+    }
+
+    SetLaneState(EEFCreepLaneState::Engaging);
+    HeroAggroTimeRemaining = Cast<AEFHeroCharacter>(TargetActor) ? HeroAggroDuration : 0.0f;
+    UE_LOG(LogEFAI, Verbose, TEXT("[%s] Creep target side=%s action=%s target=%s anchor=%s"),
+        EFLog::GetNetContext(this), MatchSide == EEFMatchSide::Dawn ? TEXT("Dawn") : TEXT("Dusk"),
+        bRetargetingToCreep ? TEXT("re-aggroed to") : TEXT("engaged"), *TargetActor->GetName(),
+        *EngagementAnchor.ToCompactString());
+    UE_VLOG_ARROW(this, LogEFAI, Display, GetActorLocation(), TargetActor->GetActorLocation(),
+        bRetargetingToCreep ? FColor::Magenta : FColor::Orange,
+        TEXT("%s %s"), bRetargetingToCreep ? TEXT("Re-aggro") : TEXT("Engage"), *TargetActor->GetName());
+}
+
+void AEFCreepCharacter::BeginReturnToLane(const TCHAR* Reason)
+{
+    if (!HasAuthority() || LaneState == EEFCreepLaneState::Returning)
+    {
+        return;
+    }
+
+    if (CombatComponent)
+    {
+        CombatComponent->CancelBasicAttack();
+    }
+    HeroAggroTimeRemaining = 0.0f;
+    SetLaneState(EEFCreepLaneState::Returning);
+    UE_LOG(LogEFAI, Display, TEXT("[%s] Creep returning side=%s creep=%s reason=%s anchor=%s"),
+        EFLog::GetNetContext(this), MatchSide == EEFMatchSide::Dawn ? TEXT("Dawn") : TEXT("Dusk"),
+        *GetName(), Reason, *EngagementAnchor.ToCompactString());
+    UE_VLOG_ARROW(this, LogEFAI, Display, GetActorLocation(), EngagementAnchor, FColor::Cyan,
+        TEXT("Return reason=%s"), Reason);
+    IssueMoveToReturnAnchor();
+}
+
+void AEFCreepCharacter::SetLaneState(EEFCreepLaneState NewState)
+{
+    if (LaneState != NewState)
+    {
+        LaneState = NewState;
+        ForceNetUpdate();
+    }
+}
+
+void AEFCreepCharacter::UpdateReturningToLane(float DeltaSeconds)
+{
+    const FVector PlanarOffset = FVector::VectorPlaneProject(EngagementAnchor - GetActorLocation(), FVector::UpVector);
+    if (PlanarOffset.SizeSquared() <= FMath::Square(ReturnAcceptanceRadius))
+    {
+        SetLaneState(EEFCreepLaneState::Marching);
+        AggroScanTimeRemaining = AggroScanInterval;
+        LastFailedWaypointLogIndex = INDEX_NONE;
+        UE_LOG(LogEFAI, Verbose, TEXT("[%s] Creep resumed lane side=%s creep=%s waypoint=%d"),
+            EFLog::GetNetContext(this), MatchSide == EEFMatchSide::Dawn ? TEXT("Dawn") : TEXT("Dusk"),
+            *GetName(), CurrentWaypointIndex);
+        IssueMoveToCurrentWaypoint();
+        return;
+    }
+
+    MoveRetryTimeRemaining -= DeltaSeconds;
+    if (MoveRetryTimeRemaining <= 0.0f)
+    {
+        IssueMoveToReturnAnchor();
+    }
+}
+
+FVector AEFCreepCharacter::GetCurrentLaneAnchor() const
+{
+    if (!LaneRoute.IsValidIndex(CurrentWaypointIndex))
+    {
+        return GetActorLocation();
+    }
+
+    const int32 PreviousWaypointIndex = FMath::Max(0, CurrentWaypointIndex - 1);
+    return FMath::ClosestPointOnSegment(
+        GetActorLocation(), LaneRoute[PreviousWaypointIndex], LaneRoute[CurrentWaypointIndex]);
+}
+
+bool AEFCreepCharacter::IsCurrentTargetAlive() const
+{
+    const AActor* CurrentTarget = CombatComponent ? CombatComponent->GetAttackTarget() : nullptr;
+    if (!IsValid(CurrentTarget))
+    {
+        return false;
+    }
+    if (const AEFCreepCharacter* Creep = Cast<AEFCreepCharacter>(CurrentTarget))
+    {
+        return !Creep->IsDead();
+    }
+    if (const AEFHeroCharacter* Hero = Cast<AEFHeroCharacter>(CurrentTarget))
+    {
+        return !Hero->IsDead();
+    }
+    if (const AEFLaneTower* Tower = Cast<AEFLaneTower>(CurrentTarget))
+    {
+        return !Tower->IsDead() && Tower->IsVulnerable();
+    }
+    return false;
+}
+
+bool AEFCreepCharacter::ShouldBreakCurrentLeash() const
+{
+    const AActor* CurrentTarget = CombatComponent ? CombatComponent->GetAttackTarget() : nullptr;
+    return !CurrentTarget
+        || FVector::DistSquared2D(GetActorLocation(), EngagementAnchor) > FMath::Square(CreepLeashRadius)
+        || FVector::DistSquared2D(CurrentTarget->GetActorLocation(), EngagementAnchor) > FMath::Square(TargetLeashRadius);
 }
 
 void AEFCreepCharacter::OnRep_MatchSide()
@@ -542,4 +726,5 @@ void AEFCreepCharacter::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& Ou
     DOREPLIFETIME(AEFCreepCharacter, MatchSide);
     DOREPLIFETIME(AEFCreepCharacter, bIsDead);
     DOREPLIFETIME(AEFCreepCharacter, AttackContactCounter);
+    DOREPLIFETIME(AEFCreepCharacter, LaneState);
 }

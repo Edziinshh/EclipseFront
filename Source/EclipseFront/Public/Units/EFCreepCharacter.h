@@ -12,6 +12,14 @@ class UEFHeroAttributeSet;
 class USceneComponent;
 class UStaticMeshComponent;
 
+UENUM(BlueprintType)
+enum class EEFCreepLaneState : uint8
+{
+    Marching,
+    Engaging,
+    Returning
+};
+
 UCLASS()
 class ECLIPSEFRONT_API AEFCreepCharacter : public ACharacter, public IAbilitySystemInterface
 {
@@ -36,6 +44,9 @@ public:
 
     UFUNCTION(BlueprintPure, Category="Eclipse Front|M2")
     UEFCombatComponent* GetCombatComponent() const { return CombatComponent; }
+
+    UFUNCTION(BlueprintPure, Category="Eclipse Front|M4")
+    EEFCreepLaneState GetLaneState() const { return LaneState; }
 
     const UEFHeroAttributeSet* GetCreepAttributeSet() const { return CreepAttributeSet; }
     float GetBasicAttackRange() const;
@@ -90,10 +101,18 @@ protected:
 
 private:
     void IssueMoveToCurrentWaypoint();
+    void IssueMoveToReturnAnchor();
+    void BeginEngagement(AActor* TargetActor, bool bRetargetingToCreep);
+    void BeginReturnToLane(const TCHAR* Reason);
+    void SetLaneState(EEFCreepLaneState NewState);
+    void UpdateReturningToLane(float DeltaSeconds);
     void UpdateTeamPresentation();
     void UpdateHealthBar();
     void FaceOverheadPresentationToLocalCamera();
     AActor* FindNearestHostileTarget() const;
+    FVector GetCurrentLaneAnchor() const;
+    bool IsCurrentTargetAlive() const;
+    bool ShouldBreakCurrentLeash() const;
 
     TArray<FVector> LaneRoute;
     int32 CurrentWaypointIndex = INDEX_NONE;
@@ -101,6 +120,11 @@ private:
     float MoveRetryTimeRemaining = 0.0f;
     float AggroScanTimeRemaining = 0.0f;
     float AttackPulseTimeRemaining = 0.0f;
+    float HeroAggroTimeRemaining = 0.0f;
+    FVector EngagementAnchor = FVector::ZeroVector;
+
+    UPROPERTY(Replicated)
+    EEFCreepLaneState LaneState = EEFCreepLaneState::Marching;
 
     UPROPERTY(EditDefaultsOnly, Category="Eclipse Front|M2", meta=(ClampMin="10.0"))
     float WaypointAcceptanceRadius = 90.0f;
@@ -113,6 +137,18 @@ private:
 
     UPROPERTY(EditDefaultsOnly, Category="Eclipse Front|M2", meta=(ClampMin="0.05"))
     float AggroScanInterval = 0.2f;
+
+    UPROPERTY(EditDefaultsOnly, Category="Eclipse Front|M4", meta=(ClampMin="100.0"))
+    float CreepLeashRadius = 900.0f;
+
+    UPROPERTY(EditDefaultsOnly, Category="Eclipse Front|M4", meta=(ClampMin="100.0"))
+    float TargetLeashRadius = 1050.0f;
+
+    UPROPERTY(EditDefaultsOnly, Category="Eclipse Front|M4", meta=(ClampMin="0.5"))
+    float HeroAggroDuration = 4.0f;
+
+    UPROPERTY(EditDefaultsOnly, Category="Eclipse Front|M4", meta=(ClampMin="10.0"))
+    float ReturnAcceptanceRadius = 110.0f;
 
     UPROPERTY(EditDefaultsOnly, Category="Eclipse Front|M2", meta=(ClampMin="0"))
     int32 GoldBounty = 45;
