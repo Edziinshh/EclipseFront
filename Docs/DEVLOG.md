@@ -27,6 +27,7 @@
 - Move отмечается зелёным, attack-move — голубым, attack target — красно-оранжевым, Hold Position — жёлтым.
 - Маркеры автоматически очищаются при завершении или отмене приказа, смерти героя и PostGame; линия до destination не выдаётся за фактический NavMesh path.
 - `EclipseFrontEditor Win64 Development` успешно собран, оба Automation-теста `EclipseFront.*` прошли; ручной сетевой тест ожидает выполнения.
+- Владелец подтвердил основную визуальную проверку приказов в PIE. В журнале нет gameplay `Error`, `Ensure` или `Accessed None`; остаются отдельные проверки owner-only отображения на клиенте и очистки после death/PostGame.
 
 ## 2026-09-05
 
